@@ -41,7 +41,7 @@ NUM_RINGS = len(RING_RADII)
 # Alternating rotation speeds (rad/s)
 ROT_SPEEDS = [0.38, -0.42, 0.45, -0.48, 0.52, -0.55, 0.60]
 # Escape gap segment counts out of 36 segments
-GAP_SEGS = [5, 4, 4, 3, 3, 2, 2]
+GAP_SEGS = [5, 4, 4, 3, 3, 3, 3]
 
 # Ring Neon Border Colors (Outer cool cyan -> inner fiery gold)
 RING_COLORS = [
@@ -178,13 +178,14 @@ class Marble:
         self.ring = 7  # Starts in Outer Ring 7
         self.won = False
         self.win_frame = 0
+        self.rank = 0
 
 marbles = []
 seed_val = int(os.environ.get("RANDOM_SEED", "42"))
 np.random.seed(seed_val)
 
 for idx, info in enumerate(RACERS):
-    angle = (idx / 8.0) * 2 * math.pi + np.random.uniform(-0.08, 0.08)
+    angle = (idx / 8.0) * 2 * math.pi + np.random.uniform(-0.06, 0.06)
     spawn_r = 472.0
     x = CX + spawn_r * math.cos(angle)
     y = CY + spawn_r * math.sin(angle)
@@ -193,7 +194,7 @@ for idx, info in enumerate(RACERS):
     b.position = (x, y)
     b.velocity = (np.random.uniform(-15, 15), np.random.uniform(-15, 15))
     s = pymunk.Circle(b, BALL_RADIUS)
-    s.elasticity = 0.86
+    s.elasticity = 0.82
     s.friction = 0.15
     s.collision_type = 1
     space.add(b, s)
@@ -202,6 +203,7 @@ for idx, info in enumerate(RACERS):
 print(f"[*] Spawned {len(marbles)} competitors in Outer Ring 7.")
 
 frame_data_list = []
+podium = []
 winner = None
 dt = 1.0 / 30.0
 t_sim_0 = time.time()
@@ -218,7 +220,9 @@ for f in range(TOTAL_FRAMES):
             nx = dx / dist
             ny = dy / dist
             # Inward gravity pull: calibrated for dramatic 80-second penetration
-            inward_f = 280.0 + (460.0 - dist) * 0.25
+            inward_f = 270.0 + (460.0 - dist) * 0.25
+            if dist < 190:
+                inward_f += 90.0
             # Orbital swirl force: alternates slightly to maintain continuous movement
             tx = -ny
             ty = nx
@@ -242,13 +246,17 @@ for f in range(TOTAL_FRAMES):
                     })
                     print(f"    [f={f:4d} ({f/30:4.1f}s)] {m.name} ESCAPED into Ring {ring_num} (dist: {dist:.1f})")
                     
-            # Check Center Core Goal (Radius < 65px)
-            if dist < 65 and not winner:
-                winner = m
+            # Check Center Core Goal (Radius < 75px)
+            if dist < 75 and not m.won:
                 m.won = True
                 m.win_frame = f
+                finish_rank = len(podium) + 1
+                m.rank = finish_rank
+                podium.append({"rank": finish_rank, "name": m.name, "color": m.color, "frame": f})
+                if finish_rank == 1:
+                    winner = m
                 print(f"**************************************************")
-                print(f"[*] WINNER REACHED CENTER CORE AT FRAME {f} ({f/30:.1f}s): {m.name}!")
+                print(f"[*] PODIUM #{finish_rank} FINISH AT FRAME {f} ({f/30:.1f}s): {m.name}!")
                 print(f"**************************************************")
                 sound_events.append({
                     "frame": f,
@@ -274,15 +282,18 @@ for f in range(TOTAL_FRAMES):
             "x": round(pos[0], 1),
             "y": round(pos[1], 1),
             "ring": m.ring,
-            "won": m.won
+            "won": m.won,
+            "rank": m.rank
         })
         
     ring_angles = [round(b.angle, 4) for b in ring_bodies]
+    podium_snapshot = [dict(p) for p in podium]
     
     frame_data_list.append({
         "f": f,
         "ring_angles": ring_angles,
         "marbles": marbles_snapshot,
+        "podium": podium_snapshot,
         "winner_name": winner.name if winner else None,
         "winner_color": winner.color if winner else None,
         "winner_frame": winner.win_frame if winner else None
@@ -558,32 +569,74 @@ for idx_f, fd in enumerate(frame_data_list):
         m_state = next((m for m in marbles_f if m["name"] == r_info["name"]), None)
         cur_ring = m_state["ring"] if m_state else 7
         
-        # Highlight card if in deeper ring
-        card_border = (255, 215, 0) if cur_ring <= 3 else r_info["color"]
-        card_bg = (30, 28, 15) if cur_ring <= 3 else (16, 22, 36)
+        m_rank = m_state["rank"] if m_state else 0
+        
+        # Highlight card based on podium rank or ring depth
+        if m_rank == 1:
+            card_border = (255, 215, 0)
+            card_bg = (45, 38, 12)
+            ring_text = "1st GOLD!"
+            ring_col = (255, 215, 0)
+        elif m_rank == 2:
+            card_border = (220, 225, 235)
+            card_bg = (30, 34, 44)
+            ring_text = "2nd SILVER"
+            ring_col = (220, 225, 235)
+        elif m_rank == 3:
+            card_border = (205, 127, 50)
+            card_bg = (38, 26, 18)
+            ring_text = "3rd BRONZE"
+            ring_col = (205, 127, 50)
+        elif m_rank > 3:
+            card_border = (60, 180, 100)
+            card_bg = (18, 32, 24)
+            ring_text = f"FINISH #{m_rank}"
+            ring_col = (80, 250, 140)
+        else:
+            card_border = (255, 215, 0) if cur_ring <= 2 else r_info["color"]
+            card_bg = (28, 26, 16) if cur_ring <= 2 else (16, 22, 36)
+            ring_text = f"RING {cur_ring}"
+            ring_col = (255, 215, 0) if cur_ring <= 2 else (0, 242, 254)
         
         draw.rectangle([rx, ry, rx + 225, ry + 95], fill=card_bg, outline=card_border, width=2)
         draw.ellipse([rx + 12, ry + 16, rx + 36, ry + 40], fill=r_info["color"])
         draw.text((rx + 46, ry + 16), r_info["name"], font=font_hud_card, fill=(255, 255, 255))
-        
-        # Display current ring level
-        ring_text = f"RING {cur_ring}" if cur_ring > 0 else "WINNER!"
-        ring_col = (255, 215, 0) if cur_ring <= 2 else (0, 242, 254)
         draw.text((rx + 46, ry + 48), ring_text, font=font_hud_card, fill=ring_col)
 
-    # 5. Climax Winner Announcement & Golden Fireworks (detik 90+)
-    if winner_name and winner_frame and f >= winner_frame:
-        frames_since_win = f - winner_frame
-        # Golden shockwave expanding from center
-        wave_r = min(500, frames_since_win * 18)
-        if wave_r < 500:
-            draw.ellipse([CX - wave_r, CY - wave_r, CX + wave_r, CY + wave_r], outline=(255, 215, 0), width=6)
+    # 5. Core Finisher Shockwaves (Dynamic 1-second pulse on finish)
+    podium_f = fd.get("podium", [])
+    for p_item in podium_f:
+        frames_since_fin = f - p_item["frame"]
+        if 0 <= frames_since_fin <= 35:
+            pulse_r = int(frames_since_fin * 14)
+            wave_col = (255, 215, 0) if p_item["rank"] == 1 else (0, 242, 254)
+            draw.ellipse([CX - pulse_r, CY - pulse_r, CX + pulse_r, CY + pulse_r], outline=wave_col, width=4)
+
+    # 6. Grand Finale Victory Podium (Last 10 Seconds: detik 82.0 to 92.0)
+    if f >= 2460 and len(podium_f) > 0:
+        p1 = podium_f[0]
+        draw.rectangle([90, 840, 990, 1340], fill=(8, 12, 24), outline=(255, 215, 0), width=6)
+        draw.text((220, 875), "OFFICIAL RACE PODIUM", font=font_stage_badge, fill=(255, 215, 0))
+        
+        # 1st Gold Champion
+        draw.text((150, 940), f"1st GOLD:    {p1['name']}", font=font_title, fill=(255, 215, 0))
+        
+        # 2nd Silver
+        if len(podium_f) > 1:
+            p2 = podium_f[1]
+            draw.text((150, 1020), f"2nd SILVER:  {p2['name']}", font=font_stage_badge, fill=(220, 225, 235))
             
-        # Hero Spotlight Card
-        draw.rectangle([90, 850, 990, 1280], fill=(10, 14, 26), outline=(255, 215, 0), width=6)
-        draw.text((230, 890), "CHAMPION WINNER!", font=font_winner_hero, fill=(255, 215, 0))
-        draw.text((280, 990), f"{winner_name} ESCAPED!", font=font_winner_hero, fill=winner_color)
-        draw.text((210, 1120), "CONGRATULATIONS IF YOU PICKED THIS COLOR!", font=font_winner_sub, fill=(255, 255, 255))
+        # 3rd Bronze
+        if len(podium_f) > 2:
+            p3 = podium_f[2]
+            draw.text((150, 1080), f"3rd BRONZE:  {p3['name']}", font=font_stage_badge, fill=(205, 127, 50))
+            
+        # 4th / 5th
+        if len(podium_f) > 3:
+            p4 = podium_f[3]
+            draw.text((150, 1140), f"4th PLACE:   {p4['name']}", font=font_ball_label, fill=(180, 190, 205))
+            
+        draw.text((150, 1230), "DID YOUR COLOR MAKE THE PODIUM?", font=font_winner_sub, fill=(0, 242, 254))
 
     pipe.stdin.write(frame_img.tobytes())
     
