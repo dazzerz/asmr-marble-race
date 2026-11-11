@@ -267,8 +267,7 @@ for f in range(TOTAL_FRAMES):
                 })
 
     # Step physics
-    for _ in range(4):
-        space.step(dt / 4)
+    space.step(dt)
 
     # Snapshot visible frame state
     marbles_snapshot = []
