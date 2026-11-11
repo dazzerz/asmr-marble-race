@@ -1,0 +1,65 @@
+name: Render ASMR Concentric Rings Race (Cloud)
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'Random seed for marble physics and spawn'
+        required: false
+        default: '42'
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    name: Cloud Render ASMR 1080x1920
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install system dependencies (FFmpeg + DejaVu Fonts)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation > /dev/null 2>&1
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pymunk pillow numpy
+
+      - name: Execute High-Speed ASMR Render
+        env:
+          OUTPUT_MP4: ConcentricRingsRace.mp4
+          RANDOM_SEED: ${{ github.event.inputs.seed || '42' }}
+        run: |
+          python render_concentric_rings.py
+
+      - name: Verify Video Metadata & File Health
+        run: |
+          ffprobe -v error -show_entries format=duration,size,bit_rate -show_entries stream=codec_name,width,height,r_frame_rate -of default=noprint_wrappers=1 ConcentricRingsRace.mp4
+
+      - name: Upload Video Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ConcentricRingsRace-MP4
+          path: ConcentricRingsRace.mp4
+          retention-days: 7
+
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="asmr-concentric-v1"
+          TITLE="Concentric Rings Race ASMR (1080x1920 30FPS)"
+          NOTES="Automated High-Performance Cloud Render via GitHub Actions. Features 7 Concentric Rings, Real Recorded Tactile Marble Clacks, Centered Arena."
+          gh release create "$TAG" ConcentricRingsRace.mp4 --repo ${{ github.repository }} --title "$TITLE" --notes "$NOTES" || gh release upload "$TAG" ConcentricRingsRace.mp4 --repo ${{ github.repository }} --clobber
